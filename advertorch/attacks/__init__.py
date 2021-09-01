@@ -27,6 +27,8 @@ from .iterative_projected_gradient import SparseL1DescentAttack
 from .iterative_projected_gradient import MomentumIterativeAttack
 from .iterative_projected_gradient import L2MomentumIterativeAttack
 from .iterative_projected_gradient import LinfMomentumIterativeAttack
+from .iterative_projected_gradient import TargetLinfPGDAttack
+from .iterative_projected_gradient import MultiTargetLinfPGDAttack
 
 from .carlini_wagner import CarliniWagnerL2Attack
 from .ead import ElasticNetL1Attack

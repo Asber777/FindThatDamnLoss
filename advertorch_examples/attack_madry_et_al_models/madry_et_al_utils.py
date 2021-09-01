@@ -16,6 +16,7 @@ from advertorch.bpda import BPDAWrapper
 from advertorch_examples.utils import ROOT_PATH, mkdir
 
 MODEL_PATH = os.path.join(ROOT_PATH, "madry_et_al_models")
+MODEL_PATH = "/root"
 mkdir(MODEL_PATH)
 Path(os.path.join(MODEL_PATH, "__init__.py")).touch()
 sys.path.append(MODEL_PATH)
@@ -93,7 +94,7 @@ def get_madry_et_al_tf_model(dataname, device="cuda"):
     if dataname == "MNIST":
         weights_path = os.path.join(
             MODEL_PATH, 'mnist_challenge/models/secret')
-
+        print(weights_path)
         try:
             from mnist_challenge.model import Model
             print("mnist_challenge found and imported")

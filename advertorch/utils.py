@@ -366,10 +366,18 @@ class PerImageStandardize(nn.Module):
     def forward(self, tensor):
         return batch_per_image_standardization(tensor)
 
+# So the dim default is 1, I think logits is a tensor with shape of (batch,label_num)
+# .max will output (tensor([ 0.4062,  0.3930, -0.5388]) , tensor([2,0,2]) )
+# the former is max number,and the latter is max index.
 
 def predict_from_logits(logits, dim=1):
     return logits.max(dim=dim, keepdim=False)[1]
 
+def topk_from_logits(logits, k=2, dim=1):
+    return logits.topk(k=k, dim=dim)[1][:,:k]
+
+def nth_predict_from_logits(logits, n=2, dim=1):
+    return logits.topk(k=n, dim=dim)[1][:,n-1]
 
 def get_accuracy(pred, target):
     return pred.eq(target).float().mean().item()

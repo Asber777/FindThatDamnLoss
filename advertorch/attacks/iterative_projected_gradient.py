@@ -23,6 +23,8 @@ from advertorch.utils import batch_multiply
 from advertorch.utils import batch_clamp
 from advertorch.utils import replicate_input
 from advertorch.utils import batch_l1_proj
+from advertorch.utils import nth_predict_from_logits
+from advertorch.utils import topk_from_logits
 
 from .base import Attack
 from .base import LabelMixin
@@ -69,6 +71,7 @@ def perturb_iterative(xvar, yvar, predict, nb_iter, eps, eps_iter, loss_fn,
 
         loss.backward()
         if ord == np.inf:
+            # first limit delta in [-eps,eps] then limit data in [clip_min,clip_max]
             grad_sign = delta.grad.data.sign()
             delta.data = delta.data + batch_multiply(eps_iter, grad_sign)
             delta.data = batch_clamp(eps, delta.data)
@@ -141,7 +144,6 @@ class PGDAttack(Attack, LabelMixin):
             ord=np.inf, l1_sparsity=None, targeted=False):
         """
         Create an instance of the PGDAttack.
-
         """
         super(PGDAttack, self).__init__(
             predict, loss_fn, clip_min, clip_max)
@@ -172,7 +174,7 @@ class PGDAttack(Attack, LabelMixin):
         x, y = self._verify_and_process_inputs(x, y)
 
         delta = torch.zeros_like(x)
-        delta = nn.Parameter(delta)
+        delta = nn.Parameter(delta) # nn.Parameter: make delta trainable.
         if self.rand_init:
             rand_init_delta(
                 delta, x, self.ord, self.eps, self.clip_min, self.clip_max)
@@ -190,6 +192,80 @@ class PGDAttack(Attack, LabelMixin):
 
         return rval.data
 
+class TargetLinfPGDAttack(PGDAttack):
+    """
+    Target PGD Attack with order=Linf; Same param as LinfPGDAttack.
+    TODO : limit n <= label_num
+    """
+    def __init__(
+            self, predict, loss_fn=None, eps=0.3, nb_iter=40,
+            eps_iter=0.01, rand_init=True, clip_min=0., clip_max=1.,
+            targeted=True, n=2):
+        ord = np.inf
+        self.n = n
+        super(TargetLinfPGDAttack, self).__init__(
+            predict=predict, loss_fn=loss_fn, eps=eps, nb_iter=nb_iter,
+            eps_iter=eps_iter, rand_init=rand_init, clip_min=clip_min,
+            clip_max=clip_max, targeted=True,
+            ord=ord)
+    def perturb(self, x, y=None):
+        x, y = self._verify_and_process_inputs(x, y)
+        delta = torch.zeros_like(x)
+        delta = nn.Parameter(delta) # make delta trainable.
+        if self.rand_init:
+            rand_init_delta(
+                delta, x, self.ord, self.eps, self.clip_min, self.clip_max)
+            delta.data = clamp(
+                x + delta.data, min=self.clip_min, max=self.clip_max) - x
+        nth_logit = nth_predict_from_logits(self.predict(x), n=self.n) # Find Target 
+        rval = perturb_iterative(
+            x, nth_logit, self.predict, nb_iter=self.nb_iter,
+            eps=self.eps, eps_iter=self.eps_iter,
+            loss_fn=self.loss_fn, minimize=self.targeted,
+            ord=self.ord, clip_min=self.clip_min,
+            clip_max=self.clip_max, delta_init=delta,
+            l1_sparsity=self.l1_sparsity,
+        )
+        return rval.data
+
+class MultiTargetLinfPGDAttack(PGDAttack):
+    """
+    Multi Target PGD Attack with order=Linf; Same param as LinfPGDAttack.
+    TODO: limit k <= label_num 
+    """
+    def __init__(
+            self, predict, loss_fn=None, eps=0.3, nb_iter=40,
+            eps_iter=0.01, rand_init=True, clip_min=0., clip_max=1.,
+            targeted=True, k=3):
+        ord = np.inf
+        self.k = k
+        super(MultiTargetLinfPGDAttack, self).__init__(
+            predict=predict, loss_fn=loss_fn, eps=eps, nb_iter=nb_iter,
+            eps_iter=eps_iter, rand_init=rand_init, clip_min=clip_min,
+            clip_max=clip_max, targeted=True,
+            ord=ord)
+    def perturb(self, x, y=None):
+        x, y = self._verify_and_process_inputs(x, y)
+        delta = torch.zeros_like(x)
+        delta = nn.Parameter(delta) # make delta trainable.
+        if self.rand_init:
+            rand_init_delta(
+                delta, x, self.ord, self.eps, self.clip_min, self.clip_max)
+            delta.data = clamp(
+                x + delta.data, min=self.clip_min, max=self.clip_max) - x
+        nth_logit = topk_from_logits(self.predict(x), k=self.k)
+        no_nb_iter = self.nb_iter//(self.k-1)
+        for i in range(1,self.k):
+            ith_y = nth_logit[:,i]
+            rval = perturb_iterative(
+                x, ith_y, self.predict, nb_iter=no_nb_iter,
+                eps=self.eps, eps_iter=self.eps_iter,
+                loss_fn=self.loss_fn, minimize=self.targeted,
+                ord=self.ord, clip_min=self.clip_min,
+                clip_max=self.clip_max, delta_init=delta,
+                l1_sparsity=self.l1_sparsity,
+            )
+        return rval.data
 
 class LinfPGDAttack(PGDAttack):
     """

@@ -98,7 +98,9 @@ attack_kwargs = {
     DeepfoolLinfAttack: {"nb_iter": 5},
 }
 
-
+''''''
+Is the order here wrong? I think we should ...
+''''''
 def _run_and_assert_original_data_untouched(adversary, data, label):
     data_clone = data.clone()
     adversary.perturb(data, label)
@@ -115,12 +117,14 @@ def _run_and_assert_original_data_untouched(adversary, data, label):
     adversary.perturb(data, label)
     assert (data_clone == data).all()
 
-
+''''''
+This function get *data be perturbated to be recognized as *label in *model by reducing loss(*criterion).
+''''''
 def _run_data_model_criterion_label_attack(
         data, label, model, criterion, attack, device):
     model.to(device)
     adversary = attack(
-        predict=model, loss_fn=criterion, **attack_kwargs[attack])
+        predict=model, loss_fn=criterion, **attack_kwargs[attack])#A instance of attack
     data, label = data.to(device), label.to(device)
     _run_and_assert_original_data_untouched(adversary, data, label)
 
