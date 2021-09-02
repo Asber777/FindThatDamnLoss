@@ -102,6 +102,12 @@ class AttackConfig(object):
         print(self.AttackClass, args, self.kwargs)
         return adversary
 
+def batch_attack_success_checker(model,data,label):
+    attack_success_index = []
+    for i,pred in enumerate(predict_from_logits(model(data))):
+        if pred != label[i]:
+            attack_success_index.append(i)
+    return attack_success_index
 
 def multiple_mini_batch_attack(
         adversary, loader, device="cuda", save_adv=False,
