@@ -233,6 +233,31 @@ class TargetLinfPGDAttack(PGDAttack):
          return rval.data
 
 
+class LinfPGDAttack(PGDAttack):
+    """
+    PGD Attack with order=Linf
+    :param predict: forward pass function.
+    :param loss_fn: loss function.
+    :param eps: maximum distortion.
+    :param nb_iter: number of iterations.
+    :param eps_iter: attack step size.
+    :param rand_init: (optional bool) random initialization.
+    :param clip_min: mininum value per input dimension.
+    :param clip_max: maximum value per input dimension.
+    :param targeted: if the attack is targeted.
+    """
+
+    def __init__(
+            self, predict, loss_fn=None, eps=0.3, nb_iter=40,
+            eps_iter=0.01, rand_init=True, clip_min=0., clip_max=1.,
+            targeted=False):
+        ord = np.inf
+        super(LinfPGDAttack, self).__init__(
+            predict=predict, loss_fn=loss_fn, eps=eps, nb_iter=nb_iter,
+            eps_iter=eps_iter, rand_init=rand_init, clip_min=clip_min,
+            clip_max=clip_max, targeted=targeted,
+            ord=ord)
+
 class L2PGDAttack(PGDAttack):
     """
     PGD Attack with order=L2
