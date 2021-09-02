@@ -35,15 +35,12 @@ from .utils import rand_init_delta
 
 class MultiOPAttack(Attack, LabelMixin):
     """
-    Embedding Attack with order=Linf; First Test With PGD.
+    Embedding Attack ; First Test With PGD.
     """
-    def __init__(self, predict, attack_list=None, rand_init=True, clip_min=0., clip_max=1.):
-        ord = np.inf
+    def __init__(self, predict, attack_list=None, clip_min=0., clip_max=1.):
         self.attack_list = attack_list
-        super(MultiOPLinfPGDAttack, self).__init__(
-            predict=predict, loss_fn=loss_fn, eps=eps, nb_iter=nb_iter,
-            eps_iter=eps_iter, rand_init=rand_init, clip_min=clip_min,
-            clip_max=clip_max, ord=ord, early_stop=True)
+        super(MultiOPAttack, self).__init__(
+            predict=predict, loss_fn=None, clip_min=clip_min,clip_max=clip_max)
 
     def perturb(self, x, y=None):
         x, y = self._verify_and_process_inputs(x, y)
@@ -54,16 +51,5 @@ class MultiOPAttack(Attack, LabelMixin):
                 delta, x, self.ord, self.eps, self.clip_min, self.clip_max)
             delta.data = clamp(
                 x + delta.data, min=self.clip_min, max=self.clip_max) - x
-        nth_logit = topk_from_logits(self.predict(x), k=self.k)
-        no_nb_iter = self.nb_iter//(self.k-1)
-        for i in range(1,self.k):
-            ith_y = nth_logit[:,i]
-            rval = perturb_iterative(
-                x, ith_y, self.predict, nb_iter=no_nb_iter,
-                eps=self.eps, eps_iter=self.eps_iter,
-                loss_fn=self.loss_fn, minimize=self.targeted,
-                ord=self.ord, clip_min=self.clip_min,
-                clip_max=self.clip_max, delta_init=delta,
-                l1_sparsity=self.l1_sparsity,early_stop=self.early_stop
-            )
+        pass
         return rval.data

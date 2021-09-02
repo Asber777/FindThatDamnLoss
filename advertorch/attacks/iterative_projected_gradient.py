@@ -24,6 +24,7 @@ from advertorch.utils import batch_clamp
 from advertorch.utils import replicate_input
 from advertorch.utils import batch_l1_proj
 from advertorch.utils import predict_from_logits
+from advertorch.utils import nth_predict_from_logits
 
 from .base import Attack
 from .base import LabelMixin
@@ -195,31 +196,41 @@ class PGDAttack(Attack, LabelMixin):
         return rval.data
 
 
-class LinfPGDAttack(PGDAttack):
-    """
-    PGD Attack with order=Linf
-
-    :param predict: forward pass function.
-    :param loss_fn: loss function.
-    :param eps: maximum distortion.
-    :param nb_iter: number of iterations.
-    :param eps_iter: attack step size.
-    :param rand_init: (optional bool) random initialization.
-    :param clip_min: mininum value per input dimension.
-    :param clip_max: maximum value per input dimension.
-    :param targeted: if the attack is targeted.
-    """
-
-    def __init__(
-            self, predict, loss_fn=None, eps=0.3, nb_iter=40,
-            eps_iter=0.01, rand_init=True, clip_min=0., clip_max=1.,
-            targeted=False):
-        ord = np.inf
-        super(LinfPGDAttack, self).__init__(
-            predict=predict, loss_fn=loss_fn, eps=eps, nb_iter=nb_iter,
-            eps_iter=eps_iter, rand_init=rand_init, clip_min=clip_min,
-            clip_max=clip_max, targeted=targeted,
-            ord=ord)
+class TargetLinfPGDAttack(PGDAttack):
+     """
+     Target PGD Attack with order=Linf; Same param as LinfPGDAttack.
+     """
+     def __init__(
+             self, predict, loss_fn=None, eps=0.3, nb_iter=40,
+             eps_iter=0.01, rand_init=True, clip_min=0., clip_max=1.,
+             targeted=True, n=2):
+         ord = np.inf
+         self.n = n
+         assert n>=2
+         super(TargetLinfPGDAttack, self).__init__(
+             predict=predict, loss_fn=loss_fn, eps=eps, nb_iter=nb_iter,
+             eps_iter=eps_iter, rand_init=rand_init, clip_min=clip_min,
+             clip_max=clip_max, targeted=True,
+             ord=ord)
+     def perturb(self, x, y=None):
+         x, y = self._verify_and_process_inputs(x, y)
+         delta = torch.zeros_like(x)
+         delta = nn.Parameter(delta) # make delta trainable.
+         if self.rand_init:
+             rand_init_delta(
+                 delta, x, self.ord, self.eps, self.clip_min, self.clip_max)
+             delta.data = clamp(
+                 x + delta.data, min=self.clip_min, max=self.clip_max) - x
+         nth_logit = nth_predict_from_logits(self.predict(x), n=self.n) # Find Target 
+         rval = perturb_iterative(
+             x, nth_logit, self.predict, nb_iter=self.nb_iter,
+             eps=self.eps, eps_iter=self.eps_iter,
+             loss_fn=self.loss_fn, minimize=self.targeted,
+             ord=self.ord, clip_min=self.clip_min,
+             clip_max=self.clip_max, delta_init=delta,
+             l1_sparsity=self.l1_sparsity,
+         )
+         return rval.data
 
 
 class L2PGDAttack(PGDAttack):
