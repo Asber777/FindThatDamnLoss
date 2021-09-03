@@ -27,6 +27,8 @@ from advertorch.utils import batch_l1_proj
 from advertorch.utils import topk_from_logits
 from advertorch.utils import predict_from_logits
 
+from advertorch.attacks.utils import batch_attack_success_checker
+
 from .base import Attack
 from .base import LabelMixin
 from .utils import rand_init_delta
@@ -42,14 +44,42 @@ class MultiOPAttack(Attack, LabelMixin):
         super(MultiOPAttack, self).__init__(
             predict=predict, loss_fn=None, clip_min=clip_min,clip_max=clip_max)
 
+    '''
+    Param: TODO
+    '''
+    def find_winner_loser(x, y, model, advx):
+        winner_list = batch_attack_success_checker(model,x,y)
+        loser_list = list(set(range(len(x))) - set(winner_list))
+        loser_list.sort()
+        loser_idx = torch.tensor(loser_list,dtype=torch.long)
+        #也可以得到winner_idx 但是winner_idx的顺序是输入x里的idx 所以缺少一个映射
+        x_loser = torch.index_select(x,dim=0,index=loser_idx)
+        y_loser = torch.index_select(y,dim=0,index=loser_idx)
+        return x_loser,y_loser, winner_list
+
     def perturb(self, x, y=None):
         x, y = self._verify_and_process_inputs(x, y)
-        delta = torch.zeros_like(x)
-        delta = nn.Parameter(delta) # make delta trainable.
-        if self.rand_init:
-            rand_init_delta(
-                delta, x, self.ord, self.eps, self.clip_min, self.clip_max)
-            delta.data = clamp(
-                x + delta.data, min=self.clip_min, max=self.clip_max) - x
-        pass
-        return rval.data
+        batch_size = len(x)
+        loser_list = np.array(range(batch_size))# store not success attacked idx
+        advx = torch.zeros_like(x)# store success attacked advx
+
+        x_loser, y_loser, win = self.find_winner_loser(x,y,self.predict)
+        next_loser = np.delete(loser_list,win) #delete idx of success advx in loser_list
+        win_idx = list(set(loser_list)-set(next_loser))
+        win_idx.sort()
+        advx[win_idx] = x[win] #update success advx
+        x, y, loser_list= x_loser, y_loser, next_loser
+
+        for attack in self.attack_list:
+            adv = attack.perturb(x,y)
+            x_loser,y_loser,win = self.find_winner_loser(x,y,self.predict)
+
+            if len(win):
+                next_loser = np.delete(loser_list,win) #delete idx of success advx in loser_list
+                win_idx = list(set(loser_list)-set(next_loser))
+                win_idx.sort()
+                advx[win_idx] = x[win] #update success advx
+                x, y, loser_list= x_loser, y_loser, next_loser
+
+            if len(x_loser)==0: break# if all data is attacked successfully, break
+        return #rval.data
