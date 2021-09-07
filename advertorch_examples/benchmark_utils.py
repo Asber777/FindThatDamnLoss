@@ -11,10 +11,10 @@ import sys
 
 import torch
 import torchvision
+from torchvision.utils import save_image
 
 import advertorch
 from advertorch.attacks.utils import multiple_mini_batch_attack
-
 
 def get_benchmark_sys_info():
     rval = "#\n#\n"
@@ -36,10 +36,11 @@ def get_benchmark_sys_info():
 
 
 def _calculate_benchmark_results(
-        model, loader, attack_class, attack_kwargs, norm, device, num_batch):
+        model, loader, attack_class, attack_kwargs, norm, device, num_batch,\
+            save_adv=False):
     adversary = attack_class(model, **attack_kwargs)
     label, pred, advpred, dist = multiple_mini_batch_attack(
-        adversary, loader, device=device, norm=norm, num_batch=num_batch)
+        adversary, loader, device=device, norm=norm, num_batch=num_batch,save_adv=save_adv)
     accuracy = 100. * (label == pred).sum().item() / len(label)
     attack_success_rate = 100. * (label != advpred).sum().item() / len(label)
     dist = None if dist is None else dist[(label != advpred) & (label == pred)]
@@ -68,9 +69,10 @@ def _generate_basic_benchmark_str(
 
 def benchmark_attack_success_rate(
         model, loader, attack_class, attack_kwargs,
-        device="cuda", num_batch=None):
+        device="cuda", num_batch=None,test_mode=False,save_adv=False):
     num, accuracy, attack_success_rate, _ = _calculate_benchmark_results(
-        model, loader, attack_class, attack_kwargs, None, device, num_batch)
+        model, loader, attack_class, attack_kwargs, None, device, num_batch,\
+            save_adv=save_adv)
     rval = _generate_basic_benchmark_str(
         model, loader, attack_class, attack_kwargs, num, accuracy,
         attack_success_rate)
@@ -79,10 +81,10 @@ def benchmark_attack_success_rate(
 
 def benchmark_margin(
         model, loader, attack_class, attack_kwargs, norm,
-        device="cuda", num_batch=None):
+        device="cuda", num_batch=None, save_adv= False):
 
     num, accuracy, attack_success_rate, dist = _calculate_benchmark_results(
-        model, loader, attack_class, attack_kwargs, norm, device, num_batch)
+        model, loader, attack_class, attack_kwargs, norm, device, num_batch,save_adv)
     rval = _generate_basic_benchmark_str(
         model, loader, attack_class, attack_kwargs, num, accuracy,
         attack_success_rate)

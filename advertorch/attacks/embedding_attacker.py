@@ -39,47 +39,53 @@ class MultiOPAttack(Attack, LabelMixin):
     """
     Embedding Attack ; First Test With PGD.
     """
-    def __init__(self, predict, attack_list=None, clip_min=0., clip_max=1.):
-        self.attack_list = attack_list
+    def __init__(self, predict, attack_list=[], eps=0.3, clip_min=0., clip_max=1.,device="cuda",norm="Linf"):
         super(MultiOPAttack, self).__init__(
             predict=predict, loss_fn=None, clip_min=clip_min,clip_max=clip_max)
+        # init subattacker here
+        self.targeted = False
+        self.device = device
+        self.eps = eps
+        self.norm = norm
+        assert len(attack_list) > 0
+        self.attack_list = []
+        for attack_class,attack_kwargs in attack_list:
+            self.attack_list.append(attack_class(self.predict, **attack_kwargs))
 
-    '''
-    Param: TODO
-    '''
-    def find_winner_loser(x, y, model, advx):
-        winner_list = batch_attack_success_checker(model,x,y)
-        loser_list = list(set(range(len(x))) - set(winner_list))
-        loser_list.sort()
-        loser_idx = torch.tensor(loser_list,dtype=torch.long)
-        #也可以得到winner_idx 但是winner_idx的顺序是输入x里的idx 所以缺少一个映射
-        x_loser = torch.index_select(x,dim=0,index=loser_idx)
-        y_loser = torch.index_select(y,dim=0,index=loser_idx)
-        return x_loser,y_loser, winner_list
-
+    def update_advx(self, x, y, last_globalloser_idx, advx):
+        localOKlist, localloserlist = batch_attack_success_checker(self.predict,x,y)
+        localloser_idx = torch.tensor(localloserlist,dtype=torch.long).to(self.device)
+        x_loser = torch.index_select(x,dim=0,index=localloser_idx)
+        y_loser = torch.index_select(y,dim=0,index=localloser_idx)
+        globalloser_idx = np.delete(last_globalloser_idx,localOKlist) 
+        globalOKidx = sorted(list(set(last_globalloser_idx)-set(globalloser_idx)))
+        advx[globalOKidx] = x[localOKlist] #update success advx
+        assert len(globalloser_idx)==len(x_loser)
+        return globalloser_idx, x_loser, y_loser
+    
     def perturb(self, x, y=None):
+
+        # first limit delta in [-eps,eps] then limit data in [clip_min,clip_max] 
         x, y = self._verify_and_process_inputs(x, y)
-        batch_size = len(x)
-        loser_list = np.array(range(batch_size))# store not success attacked idx
+        x_oral = x.clone()
+        globalloser_list = np.array(range(len(x)))# store not success attacked idx
         advx = torch.zeros_like(x)# store success attacked advx
-
-        x_loser, y_loser, win = self.find_winner_loser(x,y,self.predict)
-        next_loser = np.delete(loser_list,win) #delete idx of success advx in loser_list
-        win_idx = list(set(loser_list)-set(next_loser))
-        win_idx.sort()
-        advx[win_idx] = x[win] #update success advx
-        x, y, loser_list= x_loser, y_loser, next_loser
-
+        globalloser_list, x,y= self.update_advx(x,y,globalloser_list,advx)
         for attack in self.attack_list:
             adv = attack.perturb(x,y)
-            x_loser,y_loser,win = self.find_winner_loser(x,y,self.predict)
+            #if per is out of eps than clipped (or rescaled which is not achieved)
+            if self.norm=="Linf":
+                per = batch_clamp(self.eps, adv - x_oral[globalloser_list])
+                adv = clamp(x_oral[globalloser_list] + per,self.clip_min,self.clip_max)
+            globalloser_list, x,y= self.update_advx(adv,y,globalloser_list,advx)
+            if len(x)==0: break# if all data is attacked successfully, break
+        # deal with loser_list data
+        advx[globalloser_list] = x[:]
+        return advx
 
-            if len(win):
-                next_loser = np.delete(loser_list,win) #delete idx of success advx in loser_list
-                win_idx = list(set(loser_list)-set(next_loser))
-                win_idx.sort()
-                advx[win_idx] = x[win] #update success advx
-                x, y, loser_list= x_loser, y_loser, next_loser
-
-            if len(x_loser)==0: break# if all data is attacked successfully, break
-        return #rval.data
+    # def perturb(self, x, y=None):
+    #     x, y = self._verify_and_process_inputs(x, y)
+    #     advx = torch.zeros_like(x)
+    #     for attack in self.attack_list:
+    #         adv = attack.perturb(x,y)
+    #     return adv

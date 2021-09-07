@@ -5,6 +5,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 #
+# NOTE : added early stop ---- asebr :2021/9/3
 
 from __future__ import absolute_import
 from __future__ import division
@@ -61,16 +62,17 @@ def perturb_iterative(xvar, yvar, predict, nb_iter, eps, eps_iter, loss_fn,
         delta = delta_init
     else:
         delta = torch.zeros_like(xvar)
-
+    size = len(xvar)
     delta.requires_grad_()
     if early_stop:
-        yture =  predict_from_logits(predict(xvar)) if minimize==True else yvar
+        yture =  predict_from_logits(predict(xvar)) if minimize else yvar
     for ii in range(nb_iter):
         outputs = predict(xvar + delta)
         loss = loss_fn(outputs, yvar)
         if minimize:
             loss = -loss
-        if early_stop and yture.equal(predict_from_logits(outputs)): break
+        if early_stop and (yture != predict_from_logits(outputs)).sum().item()==size: 
+            break
         loss.backward()
         if ord == np.inf:
             # first limit delta in [-eps,eps] then limit data in [clip_min,clip_max]
@@ -203,14 +205,14 @@ class TargetLinfPGDAttack(PGDAttack):
      def __init__(
              self, predict, loss_fn=None, eps=0.3, nb_iter=40,
              eps_iter=0.01, rand_init=True, clip_min=0., clip_max=1.,
-             targeted=True, n=2):
+             targeted=True, early_stop=False, n=2):
          ord = np.inf
          self.n = n
          assert n>=2
          super(TargetLinfPGDAttack, self).__init__(
              predict=predict, loss_fn=loss_fn, eps=eps, nb_iter=nb_iter,
              eps_iter=eps_iter, rand_init=rand_init, clip_min=clip_min,
-             clip_max=clip_max, targeted=True,
+             clip_max=clip_max, targeted=True, early_stop=early_stop,
              ord=ord)
      def perturb(self, x, y=None):
          x, y = self._verify_and_process_inputs(x, y)
@@ -250,12 +252,12 @@ class LinfPGDAttack(PGDAttack):
     def __init__(
             self, predict, loss_fn=None, eps=0.3, nb_iter=40,
             eps_iter=0.01, rand_init=True, clip_min=0., clip_max=1.,
-            targeted=False):
+            targeted=False, early_stop=False):
         ord = np.inf
         super(LinfPGDAttack, self).__init__(
             predict=predict, loss_fn=loss_fn, eps=eps, nb_iter=nb_iter,
             eps_iter=eps_iter, rand_init=rand_init, clip_min=clip_min,
-            clip_max=clip_max, targeted=targeted,
+            clip_max=clip_max, targeted=targeted, early_stop=early_stop,
             ord=ord)
 
 class L2PGDAttack(PGDAttack):
@@ -276,12 +278,12 @@ class L2PGDAttack(PGDAttack):
     def __init__(
             self, predict, loss_fn=None, eps=0.3, nb_iter=40,
             eps_iter=0.01, rand_init=True, clip_min=0., clip_max=1.,
-            targeted=False):
+            targeted=False, early_stop=False):
         ord = 2
         super(L2PGDAttack, self).__init__(
             predict=predict, loss_fn=loss_fn, eps=eps, nb_iter=nb_iter,
             eps_iter=eps_iter, rand_init=rand_init, clip_min=clip_min,
-            clip_max=clip_max, targeted=targeted,
+            clip_max=clip_max, targeted=targeted, early_stop=early_stop,
             ord=ord)
 
 
@@ -303,12 +305,12 @@ class L1PGDAttack(PGDAttack):
     def __init__(
             self, predict, loss_fn=None, eps=10., nb_iter=40,
             eps_iter=0.01, rand_init=True, clip_min=0., clip_max=1.,
-            targeted=False):
+            targeted=False, early_stop=False):
         ord = 1
         super(L1PGDAttack, self).__init__(
             predict=predict, loss_fn=loss_fn, eps=eps, nb_iter=nb_iter,
             eps_iter=eps_iter, rand_init=rand_init, clip_min=clip_min,
-            clip_max=clip_max, targeted=targeted,
+            clip_max=clip_max, targeted=targeted, early_stop=early_stop,
             ord=ord, l1_sparsity=None)
 
 
@@ -331,12 +333,12 @@ class SparseL1DescentAttack(PGDAttack):
     def __init__(
             self, predict, loss_fn=None, eps=0.3, nb_iter=40,
             eps_iter=0.01, rand_init=False, clip_min=0., clip_max=1.,
-            l1_sparsity=0.95, targeted=False):
+            l1_sparsity=0.95, targeted=False, early_stop=False):
         ord = 1
         super(SparseL1DescentAttack, self).__init__(
             predict=predict, loss_fn=loss_fn, eps=eps, nb_iter=nb_iter,
             eps_iter=eps_iter, rand_init=rand_init, clip_min=clip_min,
-            clip_max=clip_max, targeted=targeted,
+            clip_max=clip_max, targeted=targeted, early_stop=early_stop,
             ord=ord, l1_sparsity=l1_sparsity)
 
 
@@ -354,13 +356,13 @@ class L2BasicIterativeAttack(PGDAttack):
     """
 
     def __init__(self, predict, loss_fn=None, eps=0.1, nb_iter=10,
-                 eps_iter=0.05, clip_min=0., clip_max=1., targeted=False):
+                 eps_iter=0.05, clip_min=0., clip_max=1., targeted=False, early_stop=False):
         ord = 2
         rand_init = False
         l1_sparsity = None
         super(L2BasicIterativeAttack, self).__init__(
             predict, loss_fn, eps, nb_iter, eps_iter, rand_init,
-            clip_min, clip_max, ord, l1_sparsity, targeted)
+            clip_min, clip_max, ord, l1_sparsity, targeted, early_stop=early_stop)
 
 
 class LinfBasicIterativeAttack(PGDAttack):
@@ -381,13 +383,13 @@ class LinfBasicIterativeAttack(PGDAttack):
     """
 
     def __init__(self, predict, loss_fn=None, eps=0.1, nb_iter=10,
-                 eps_iter=0.05, clip_min=0., clip_max=1., targeted=False):
+                 eps_iter=0.05, clip_min=0., clip_max=1., targeted=False, early_stop=False):
         ord = np.inf
         rand_init = False
         l1_sparsity = None
         super(LinfBasicIterativeAttack, self).__init__(
             predict, loss_fn, eps, nb_iter, eps_iter, rand_init,
-            clip_min, clip_max, ord, l1_sparsity, targeted)
+            clip_min, clip_max, ord, l1_sparsity, targeted, early_stop=early_stop)
 
 
 class MomentumIterativeAttack(Attack, LabelMixin):

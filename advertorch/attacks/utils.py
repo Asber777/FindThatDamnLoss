@@ -12,6 +12,7 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 import numpy as np
+from numpy.lib.npyio import save
 import torch
 
 from torch.distributions import laplace
@@ -25,6 +26,7 @@ from advertorch.utils import normalize_by_pnorm
 from advertorch.utils import predict_from_logits
 from advertorch.loss import ZeroOneLoss
 from advertorch.attacks import Attack, LabelMixin
+from torchvision.utils import save_image
 
 
 def zero_gradients(x):
@@ -104,10 +106,13 @@ class AttackConfig(object):
 
 def batch_attack_success_checker(model,data,label):
     attack_success_index = []
+    not_success_index = []
     for i,pred in enumerate(predict_from_logits(model(data))):
         if pred != label[i]:
             attack_success_index.append(i)
-    return attack_success_index
+        else:
+            not_success_index.append(i)
+    return attack_success_index, not_success_index
 
 def multiple_mini_batch_attack(
         adversary, loader, device="cuda", save_adv=False,
@@ -137,6 +142,9 @@ def multiple_mini_batch_attack(
     for data, label in loader:
         data, label = data.to(device), label.to(device)
         adv = adversary.perturb(data, label)
+        if save_adv:
+            save_image(data,"data{}.png".format(idx_batch))
+            save_image(adv,"adv{}.png".format(idx_batch))
         advpred = predict_from_logits(adversary.predict(adv))
         pred = predict_from_logits(adversary.predict(data))
         lst_label.append(label)
