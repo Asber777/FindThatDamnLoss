@@ -100,3 +100,17 @@ def soft_logit_margin_loss(
     logits_other_label = logits[mask].reshape(batch_size, num_class - 1)
     loss = torch.logsumexp(logits_other_label, dim=1) - logits_true_label
     return _reduce_loss(loss, reduction) + offset
+
+
+
+def elementwise_margin(logits, label):
+    batch_size = logits.size(0)
+    topval, topidx = logits.topk(2, dim=1)
+    maxelse = ((label != topidx[:, 0]).float() * topval[:, 0]
+               + (label == topidx[:, 0]).float() * topval[:, 1])
+    return maxelse - logits[torch.arange(batch_size), label]
+
+def random_loss(input, target, reduction='elementwise_mean'):
+    '''assume all data are the same class and the target is all groundtruth.'''
+    loss = None
+    return _reduce_loss(loss, reduction)
