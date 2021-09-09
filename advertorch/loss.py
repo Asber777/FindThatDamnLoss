@@ -5,6 +5,12 @@ from advertorch import oplib
 from advertorch.utils import clamp
 from advertorch.oplib import *
 
+class MyCEloss(_Loss):
+    def __init__(self, size_average=None, reduce=None,reduction='elementwise_mean'):
+        super(MyCEloss, self).__init__(size_average, reduce, reduction)
+    def forward(self, logits, targets):
+        return myceloss(logits, targets, reduction=self.reduction)
+
 class ZeroOneLoss(_Loss):
     """Zero-One Loss"""
 
@@ -114,31 +120,16 @@ def elementwise_margin(logits, label):
 
 
 # TODO random constract loss
-
 def random_loss(input, target, reduction='elementwise_mean'):
     '''assume all data are the same class and the target is all groundtruth.'''
     loss = None
     return _reduce_loss(loss, reduction)
 
-# I don know 
-def constract_loss(input, target, reduction='elementwis_mean'):
-    return 
-
-# constract CE loss using my oplist 
-print("-------------===============------------")
-opdict,oplist = getOP()
-U,B,M,T,S = opdict['Unary'],opdict['Binary'],opdict['Multinary'],opdict['TripMulti'],opdict['SpecialMulti']
-Z = abs(t.randn(20,10))
-_,label = t.max(Z,dim=1)
-
-print(Z)
-#  CE is test OK 
-zy = S['getLabellogit'](Z,label)
-print(zy)
-expZ = M['Exponential'](Z)
-sumexpZ = M['Sum'](expZ)
-logsumexpZ = U['logarithm'](sumexpZ)
-anti_zy = U['reverse'](zy)
-CE = B['addtensor'](anti_zy,logsumexpZ)
-a = F.cross_entropy(Z, label,weight=None,reduction='mean')
-print(CE.mean(),a)
+def myceloss(Z,label,reduction='elementwise_mean'):
+    opdict,_ = getOP()
+    U,B,M,S = opdict['Unary'],opdict['Binary'],opdict['Multinary'],opdict['SpecialMulti']
+    zy = S['getLabellogit'](Z,label)
+    negzy = U['reverse'](zy)
+    logsumexpZ = U['logarithm'](M['Sum'](M['Exponential'](Z)))
+    loss = B['addtensor'](negzy,logsumexpZ)
+    return _reduce_loss(loss, reduction)
