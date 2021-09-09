@@ -45,7 +45,9 @@ def _testUnary(labelnum,unarylist):
     print("============a===========")
     for op in unarylist:
         print(op)
-        print(eval(op)(a))
+        r = eval(op)(a)
+        print(r)
+        assert r.shape[0] == labelnum
         print("--------------")
 if TestOP: _testUnary(10,UnaryList)
 
@@ -78,7 +80,9 @@ def _testBinary(labelnum,binarylist):
     print("===========b============")
     for op in binarylist:
         print(op)
-        print(eval(op)(a,b))
+        r = eval(op)(a,b)
+        print(r)
+        assert r.shape[0] == labelnum
         print("--------------")
 if TestOP: _testBinary(10,BinaryList)
 
@@ -108,14 +112,14 @@ def Labelelse(Z,label,n):
     topval, _ = newZ.topk(label_num-1, dim=1)
     return topval[:,n-1]
 getLabellogit = lambda Z,label:Z[t.arange(len(label)), label]
-
+def Sum(Z,b=1):return t.sum(Z,dim=1)*b
 
 '''Multinary opration:input a logits tensor and return a tensor with the same shape'''
 def WeightZ(Z,weight):
     assert isinstance(weight,t.Tensor)
     assert weight.shape[0]==Z.shape[1]
     return Z*weight
-# The Multinary OP below is overall version of Unary OP
+# - - - - The Multinary OP below is overall version of Unary OP - - - -
 Dividenormal = lambda Z,b=1:Z/b
 Multipnormal = lambda Z,b=1:Z*b 
 def Addconstant(Z,b=0):return Z+b
@@ -133,39 +137,31 @@ def Sign(Z,b=0):return t.sign(Z+b)
 def Trunc(Z,b=0):return t.trunc(Z+b)
 def Softsign(Z,b=0):return F.softsign(Z+b)
 def Swish(Z,b=1.702):return Z*sigmoid(b*Z,0)
-def Sum(Z,b=1):return t.sum(Z,dim=1)*b
-'''TripMultinary'''
+'''TripMultinary: input a tensor with 2 number ,return a tensor'''
 def ShiftZ(Z,s=1,m=1):return s*Z+m
 def Softplus(Z,a=1,b=1):return t.log(a+b*t.exp(Z))
 
 TripMultinaryList = ["ShiftZ","Softplus"]
-SpecialMultinaryList = ["WeightZ","Maxelse","Minelse","Labelelse","getLabellogit"]
+SpecialMultinaryList = ["WeightZ","Maxelse","Minelse","Labelelse","getLabellogit","Sum"]
 MultinaryList = ["Dividenormal","Multipnormal","Addconstant","Square","Reciprocal","Exponential","Logarithm","Cosh","Sinh","Erf",\
-    "Ceil","Sign","Trunc","Softsign","Swish","Sum"]
+    "Ceil","Sign","Trunc","Softsign","Swish"]
 TripMultinaryDict = {"ShiftZ":ShiftZ,"Softplus":Softplus}
-SpecialMultinaryDict = {"WeightZ":WeightZ,"Maxelse":Maxelse,"Minelse":Minelse,"Labelelse":Labelelse,"getLabellogit":getLabellogit}
+SpecialMultinaryDict = {"WeightZ":WeightZ,"Maxelse":Maxelse,"Minelse":Minelse,"Labelelse":Labelelse,"getLabellogit":getLabellogit,"Sum":Sum}
 MultinaryDict = {"Dividenormal":Dividenormal,"Multipnormal":Multipnormal,"Addconstant":Addconstant,"Square":Square,\
     "Reciprocal":Reciprocal,"Exponential":Exponential,"Logarithm":Logarithm,"Cosh":Cosh,"Sinh":Sinh,"Erf":Erf,\
-    "Ceil":Ceil,"Sign":Sign,"Trunc":Trunc,"Softsign":Softsign,"Swish":Swish,"Sum":Sum}
-def _tesTripMutinary(batchsize,labelnum,List):
-    logits = t.randn(batchsize,labelnum)
-    print(logits)
-    print("===========logits============")
-    for op in List:
-        print(op)
-        print(eval(op)(logits,10,1))
-        print("--------------")
+    "Ceil":Ceil,"Sign":Sign,"Trunc":Trunc,"Softsign":Softsign,"Swish":Swish}
 def _testMutinary(batchsize,labelnum,List):
-    logits = t.randn(batchsize,labelnum)
+    logits = abs(t.randn(batchsize,labelnum))
     print(logits)
     print("===========logits============")
     for op in List:
         print(op)
-        print(eval(op)(logits,10))
+        r = eval(op)(logits)
+        print(r)
+        assert r.shape.numel()==batchsize*labelnum
         print("--------------")
 if TestOP:
     _testMutinary(10,10,MultinaryList)
-    _tesTripMutinary(10,10,TripMultinaryList)
 
 def getOP(intro = False):
     opdict = {'Unary':UnaryDict,'Binary':BinaryDict,'Multinary':MultinaryDict,'TripMulti':TripMultinaryDict,\
