@@ -1,7 +1,9 @@
 import torch
+import torch.nn.functional as F
 from torch.nn.modules.loss import _Loss
+from advertorch import oplib
 from advertorch.utils import clamp
-
+from advertorch.oplib import *
 
 class ZeroOneLoss(_Loss):
     """Zero-One Loss"""
@@ -110,7 +112,33 @@ def elementwise_margin(logits, label):
                + (label == topidx[:, 0]).float() * topval[:, 1])
     return maxelse - logits[torch.arange(batch_size), label]
 
+
+# TODO random constract loss
+
 def random_loss(input, target, reduction='elementwise_mean'):
     '''assume all data are the same class and the target is all groundtruth.'''
     loss = None
     return _reduce_loss(loss, reduction)
+
+# I don know 
+def constract_loss(input, target, reduction='elementwis_mean'):
+    return 
+
+# constract CE loss using my oplist 
+print("-------------===============------------")
+opdict,oplist = getOP()
+U,B,M,T,S = opdict['Unary'],opdict['Binary'],opdict['Multinary'],opdict['TripMulti'],opdict['SpecialMulti']
+Z = abs(t.randn(20,10))
+_,label = t.max(Z,dim=1)
+
+print(Z)
+#  CE is test OK 
+zy = S['getLabellogit'](Z,label)
+print(zy)
+expZ = M['Exponential'](Z)
+sumexpZ = M['Sum'](expZ)
+logsumexpZ = U['logarithm'](sumexpZ)
+anti_zy = U['reverse'](zy)
+CE = B['addtensor'](anti_zy,logsumexpZ)
+a = F.cross_entropy(Z, label,weight=None,reduction='mean')
+print(CE.mean(),a)
