@@ -6,8 +6,10 @@ from advertorch.utils import clamp
 from advertorch.oplib import *
 
 class MyCEloss(_Loss):
+    """CEloss which constracted by my oplib"""
     def __init__(self, size_average=None, reduce=None,reduction='elementwise_mean'):
         super(MyCEloss, self).__init__(size_average, reduce, reduction)
+
     def forward(self, logits, targets):
         return myceloss(logits, targets, reduction=self.reduction)
 
@@ -110,6 +112,16 @@ def soft_logit_margin_loss(
     return _reduce_loss(loss, reduction) + offset
 
 
+def myceloss(Z,label,reduction='elementwise_mean'):
+    opdict,_ = getOP()
+    U,B,M,S = opdict['Unary'],opdict['Binary'],opdict['Multinary'],opdict['SpecialMulti']
+    zy = S['getLabellogit'](Z,label)
+    negzy = U['reverse'](zy)
+    logsumexpZ = U['logarithm'](M['Sum'](M['Exponential'](Z)))
+    # which is already in torch "torch.logsumexp"
+    loss = B['addtensor'](negzy,logsumexpZ)
+    return _reduce_loss(loss, reduction)
+
 
 def elementwise_margin(logits, label):
     batch_size = logits.size(0)
@@ -125,11 +137,3 @@ def random_loss(input, target, reduction='elementwise_mean'):
     loss = None
     return _reduce_loss(loss, reduction)
 
-def myceloss(Z,label,reduction='elementwise_mean'):
-    opdict,_ = getOP()
-    U,B,M,S = opdict['Unary'],opdict['Binary'],opdict['Multinary'],opdict['SpecialMulti']
-    zy = S['getLabellogit'](Z,label)
-    negzy = U['reverse'](zy)
-    logsumexpZ = U['logarithm'](M['Sum'](M['Exponential'](Z)))
-    loss = B['addtensor'](negzy,logsumexpZ)
-    return _reduce_loss(loss, reduction)

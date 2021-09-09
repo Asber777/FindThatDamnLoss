@@ -107,7 +107,7 @@ def Labelelse(Z,label,n):
     newZ = t.stack([t.cat((Z[i][:label[i]],Z[i][label[i]+1:])) for i in range(batchsize)])
     topval, _ = newZ.topk(label_num-1, dim=1)
     return topval[:,n-1]
-getLabellogit = lambda Z,label:t.tensor([z[label[i]] for i,z in enumerate(Z)],device=Z.device)
+getLabellogit = lambda Z,label:Z[t.arange(len(label)), label]
 
 
 '''Multinary opration:input a logits tensor and return a tensor with the same shape'''
