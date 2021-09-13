@@ -64,6 +64,131 @@ class SoftLogitMarginLoss(_Loss):
             logits, targets, reduction=self.reduction, offset=self.offset)
 
 
+'''
+Create a LOSS graph .
+input logits number ->Z
+Number of T2T/v2v after Logits or vector -> M 
+Number of v2v after 2v2v(m) ->N
+abbreviation - T2T:T ; T2v:t ; 2v2v:m ; v2v:v
+====================Example=====================
+if K = 4 M = 2 N = 1, then the structure of Loss may looks like:
+Logits->T2T(1)->T2T(5)->T2v(09)->v2v->v2v-\__2v2v->v2v--\
+Logits->T2T(2)->T2T(6)->T2v(10)->v2v->v2v-/              \__2v2v->v2v->LOSS
+Logits->T2T(3)->T2T(7)->T2v(11)->v2v->v2v-\__2v2v->v2v---/
+Logits->T2T(4)->T2T(8)->T2v(12)->v2v->v2v-/
+For convenient,I use this form's merge
+v1--
+     \
+v2--(v6)-v2v
+         \
+v3-------(v7）-v2v
+                 \
+v4--------------(v8)-v2v
+                       \
+v5--------------------(v9)--v2v--Loss 我觉得这还是和上面那种形式有差别的，前者所有branch的op数都一样，但是后者明显branch5在merge操作的op数变少了
+'''
+class OpNode():
+    def __init__(self, type=None, op=None, lchild=None, rchild=None):
+        assert type in ['T','v','t','m','leaf']
+        self.op,self.lchild,self.rchild = op,lchild,rchild
+        self.name = op.__name__
+        self.result = 0
+    # We assume that if op type is T v t, than it only has input from lchild
+    def forward(self, logits, label=None):
+        if self.type=='T':#T2T input:Tensor
+            Z = self.lchild.forward(logits)
+            assert isinstance(Z,torch.Tensor) and len(Z.shape)==2
+            self.result = self.op(Z)
+        if self.type=='v':#v2v input:vector
+            x = self.lchild.forward(logits,label)
+            assert isinstance(x,torch.Tensor) and len(x.shape)==1
+            self.result = self.op(x)
+        if self.type=='t':#T2v input:Tensor
+            Z = self.lchild.forward(logits)
+            assert isinstance(Z,torch.Tensor) and len(Z.shape)==2
+            self.result = self.op(Z,self.label)
+        if self.type=='m':#tv2v input:vector vector
+            x = self.lchild.forward(logits,label)
+            y = self.rchild.forward(logits,label)
+            assert isinstance(x,torch.Tensor) and isinstance(y,torch.Tensor)
+            self.result = self.op(x,y)
+        if self.type=='leaf':
+            self.result = logits.clone().detach()
+        return self.result
+    def visualization(self):
+        
+
+# Assume that all op need not keep requires_grad same as input tensor/vector
+class CompositeLoss(_Loss):
+    def __init__(self, T2Tlist:list, T2vlist:list, v2vlist:list, tv2vlist:list ,K:int =2, M:int =1, N:int=1,
+                size_average=None, reduce=None,reduction='elementwise_mean'):
+        super(CompositeLoss, self).__init__(size_average, reduce, reduction)
+        assert K>=2 and M>=0 and N>=0
+        self.K, self.M, self.N, self.m_num= K, M, N, max(K-1,0)
+        self.opl = {'T':len(T2Tlist),'t':len(T2vlist),'v':len(v2vlist),'m':len(tv2vlist)}
+        self.op = {'T':T2Tlist,'t':T2vlist,'v':v2vlist,'m':tv2vlist}
+        self.example = 'T**'*self.K*self.M + self.K *'t**' + 'v**'*self.K*self.M + self.m_num*('m**'+self.N*'v**')
+        self.loss = None
+
+    def _checkLegal(self,loss:str): # Use a str to represent loss.
+        self.op_num = len(loss)//3
+        for i in range(self.op_num):
+            if int(loss[i*3+1:i*3+3]) >= self.opl[loss[i*3]]:
+                print("{} is wrong expression".format(loss[i*3:(i+1)*3]))
+                return False
+        print("len of loss str is {}".format(self.op_num))
+        return True
+
+    def getLoss(self,loss):
+        assert self._checkLegal(loss)
+        self.branch = [[None] for _ in range(self.K)]
+        ahead = self.K *(2*self.M+1) # branch op num
+        for i in range(ahead):
+            type = loss[i*3]
+            op = self.op[type][int(loss[i*3+1:i*3+3])]
+            self.branch[i%self.K].append(OpNode(type,op,self.branch[i%self.K][-1],None))
+        self.merge = [self.branch[k][-1] for k in range(self.K)]
+        leftnode = False
+        layer_node_num = self.K
+        while(layer_node_num!=1):
+            if not leftnode:#no node left to merge
+                layer_node_num,leftnode = layer_node_num//2,False if layer_node_num%2==0 else True
+            elif leftnode and layer_node_num%2==0:#a node left to merge and the num of nodes product by last layer is even
+                layer_node_num,leftnode = layer_node_num//2,True
+            elif leftnode and layer_node_num%2:
+                layer_node_num,leftnode = layer_node_num//2 + 1,False
+            # According to layer_node_num ,create node and add to self.merge
+            temp_merge = []
+            for j in range(layer_node_num):
+                i += 1
+                type = loss[i*3]
+                op = self.op[type][int(loss[i*3+1:i*3+3])]
+                lchild = self.merge[-j*2-1]
+                rchild = self.merge[-j*2-2]
+                temp_merge.append(OpNode(type,op,lchild,rchild))
+                for _ in range(self.N):
+                    i += 1
+                    type = loss[i*3]
+                    op = self.op[type][int(loss[i*3+1:i*3+3])]
+                    lchild = temp_merge[-1]
+                    temp_merge.append(OpNode(type,op,lchild,None))
+            self.merge = self.merge + temp_merge
+        return self.merge[-1]
+
+    # TODO random constract loss
+    def randomLossstr(self):
+        pass
+
+    def forward(self, logits, targets):
+        return 
+
+v2v,t2t,tv2v,t2v,_ = getMNISTop()
+cl = CompositeLoss(t2t,t2v,v2v,tv2v,K=5,M=1,N=1)
+loss = 'T01T02T01T02T01t03t04t03t04t03v05v06v05v06v05m07v08m07v08m07v08m07v08'
+loss = cl.getLoss(loss)
+
+
+
 def zero_one_loss(input, target, reduction='elementwise_mean'):
     loss = (input != target)
     return _reduce_loss(loss, reduction)
