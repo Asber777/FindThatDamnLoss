@@ -4,7 +4,7 @@ from torch.nn.modules.loss import _Loss
 from advertorch import oplib
 from advertorch.utils import clamp
 from advertorch.oplib import getMNISTop
-
+import random
 # class MyCEloss(_Loss):
 #     """CEloss which constracted by my oplib"""
 #     def __init__(self, size_average=None, reduce=None,reduction='elementwise_mean'):
@@ -172,8 +172,9 @@ class CompositeLoss(_Loss):
             print("plz specify loss by method:getLoss(lossExpr)")
     # TODO random constract loss
     def randomLossstr(self):
-        pass
-
+        str,loss = self.OPORDER,""
+        for i in str:loss+=i+format(random.randint(0,len(self.op[i])-1),"02d")
+        return loss
     def forward(self, logits, targets):
         return self.loss.forward_getExp(logits,targets)
 
@@ -183,6 +184,8 @@ loss = 'T01T02T01T02T01t03t04t03t04t03v05v06v05v06v05m07v08m07v08m07v08m07v08'
 loss = cl.getLoss(loss)
 # for visualization
 cl.visualization()
+print(cl.randomLossstr())
+print(cl.randomLossstr())
 
 def zero_one_loss(input, target, reduction='elementwise_mean'):
     loss = (input != target)
