@@ -5,13 +5,6 @@ from advertorch import oplib
 from advertorch.utils import clamp
 from advertorch.oplib import getMNISTop
 import random
-# class MyCEloss(_Loss):
-#     """CEloss which constracted by my oplib"""
-#     def __init__(self, size_average=None, reduce=None,reduction='elementwise_mean'):
-#         super(MyCEloss, self).__init__(size_average, reduce, reduction)
-
-#     def forward(self, logits, targets):
-#         return myceloss(logits, targets, reduction=self.reduction)
 
 class ZeroOneLoss(_Loss):
     """Zero-One Loss"""
@@ -22,8 +15,6 @@ class ZeroOneLoss(_Loss):
 
     def forward(self, input, target):
         return logit_margin_loss(input, target, reduction=self.reduction)
-
-
 
 class LogitMarginLoss(_Loss):
     """Logit Margin Loss"""
@@ -37,7 +28,6 @@ class LogitMarginLoss(_Loss):
         return logit_margin_loss(
             input, target, reduction=self.reduction, offset=self.offset)
 
-
 class CWLoss(_Loss):
     """CW Loss"""
     # TODO: combine with the CWLoss in advertorch.utils
@@ -48,7 +38,6 @@ class CWLoss(_Loss):
 
     def forward(self, input, target):
         return cw_loss(input, target, reduction=self.reduction)
-
 
 class SoftLogitMarginLoss(_Loss):
     """Soft Logit Margin Loss"""
@@ -63,58 +52,68 @@ class SoftLogitMarginLoss(_Loss):
         return soft_logit_margin_loss(
             logits, targets, reduction=self.reduction, offset=self.offset)
 
-
 '''
 A class which create a loss graph.
 Parameter:
-- Z: input logits number 
-- M: Number of T2T/v2v after Logits or vector 
-- N: Number of v2v after 2v2v(m) 
+ - Z: input logits number 
+ - M: Number of T2T/v2v after Logits or vector 
+ - N: Number of v2v after 2v2v(m) 
 Abbreviation: T2T:T ; T2v:t ; 2v2v:m ; v2v:v
 Example :
------------------------------------------------------------------------
-|if K = 4 M = 2 N = 1, then the structure of Loss may looks like:      |
-|Logits->T2T(1)->T2T(5)->T2v(09)->v2v->v2v->\                          |
-|Logits->T2T(2)->T2T(6)->T2v(10)->v2v->v2v->2v2v->v2v->\               |
-|Logits->T2T(3)->T2T(7)->T2v(11)->v2v->v2v->\          |               |
-|Logits->T2T(4)->T2T(8)->T2v(12)->v2v->v2v->2v2v->v2v->2v2v->v2v->LOSS |
------------------------------------------------------------------------
+ - ------------------------------------------------------------------------
+ - | if K = 4 M = 2 N = 1, then the structure of Loss may looks like:      |
+ - | Logits->T2T(1)->T2T(5)->T2v(09)->v2v->v2v->\                          |
+ - | Logits->T2T(2)->T2T(6)->T2v(10)->v2v->v2v->2v2v->v2v->\               |
+ - | Logits->T2T(3)->T2T(7)->T2v(11)->v2v->v2v->\          |               |
+ - | Logits->T2T(4)->T2T(8)->T2v(12)->v2v->v2v->2v2v->v2v->2v2v->v2v->LOSS |
+ - -------------------------------------------------------------------------
 '''
+
 class OpNode():
-    middle_op = ['T','v','t','m']
+    middle_op = ['T','v','t']
+    merge_op = 'm'
     special_op = ['leaf','loss']
     def __init__(self, type=None, op=None, lchild=None, rchild=None):
-        assert type in self.middle_op or type in self.special_op
         self.type = type
         self.op,self.lchild,self.rchild = op,lchild,rchild
-        self.exp = type if type in self.special_op else op.__name__
-        self.result = 0
+        self.name = type if type in self.special_op else op.__name__
+
+    def __str__(self) -> str:
+        intro = "type:{};name:{};".format(self.type,self.name)
+        if self.result:intro+="result:{};".format(self.result)
+        if self.exp:intro+="exp:{}".format(self.exp)
+        return intro
+
     # NOTE : If op type is T\v\t, than it only has lchild
-    def forward(self, logits, label):
-        assert isinstance(logits,torch.Tensor) and len(logits.shape)==2 \
-            and isinstance(label,torch.Tensor) and len(label.shape)==1
-        if self.type in ['T','v','t']:
+    def forward(self, logits, label, reduction='elementwise_mean'):
+        if self.type in self.middle_op:
             input = self.lchild.forward(logits,label)
-            self.result = self.op(input,self.label) if self.type=='t' else self.op(input)
-        if self.type=='m':
+            self.result = self.op(input,label) if self.type=='t' else self.op(input)
+        if self.type==self.merge_op:
             x,y = self.lchild.forward(logits,label),self.rchild.forward(logits,label)
             self.result = self.op(x,y)
         if self.type=='leaf':
-            self.result = logits.clone().detach()
+            self.result = logits#.clone().detach()
         if self.type=='loss':
-            self.result = self.lchild.forward(logits,label)
+            self.result = _reduce_loss(self.lchild.forward(logits,label), reduction)
         return self.result
-    def getExp(self):
-        if self.type in ['T','v','t']:
-            self.exp = self.exp + "(" + self.lchild.getExp() +")"
-        if self.type=='m':
-            self.exp = self.exp + "( " + self.lchild.getExp() + " , " + self.rchild.getExp() + " )"
-        if self.type=='leaf':
+        
+    def getExp(self):# TestOK
+        if self.type in self.middle_op:
+            self.exp = self.name + "(" + self.lchild.getExp() +")"
+        elif self.type == self.merge_op:
+            self.exp = self.name + "[" + self.lchild.getExp() + " , " + self.rchild.getExp() + "]"
+        elif self.type=='leaf':
             self.exp = 'Z'
-        if self.type=='loss':
-            self.exp = self.exp + " = " + self.lchild.getExp()
+        elif self.type=='loss':
+            self.exp = "loss = " + self.lchild.getExp()
+        else:
+            raise ValueError("type is not right")
         return self.exp
+
 # Assume that all op need not keep requires_grad same as input tensor/vector
+# 反转了 不用Assume,所有op都需要可导
+# 反转反转了 貌似不是op的问题 是我的loss输出没有requires grad
 class CompositeLoss(_Loss):
     def __init__(self, T2Tlist:list, T2vlist:list, v2vlist:list, tv2vlist:list ,K:int =2, M:int =1, N:int=1,
                 size_average=None, reduce=None,reduction='elementwise_mean'):
@@ -125,6 +124,7 @@ class CompositeLoss(_Loss):
         self.OPORDER = 'T'*self.K*self.M + self.K*'t' + 'v'*self.K*self.M + self.m_num*('m'+self.N*'v')
         self.loss = None
 
+    # TODO  Seems not working ,plz check out
     def _checkLegal(self,loss:str): # Use a str to represent loss.
         self.op_num = len(loss)//3
         for i in range(self.op_num):
@@ -176,16 +176,16 @@ class CompositeLoss(_Loss):
         for i in str:loss+=i+format(random.randint(0,len(self.op[i])-1),"02d")
         return loss
     def forward(self, logits, targets):
-        return self.loss.forward_getExp(logits,targets)
+        return self.loss.forward(logits,targets,reduction=self.reduction)
 
-v2v,t2t,tv2v,t2v,_ = getMNISTop()
-cl = CompositeLoss(t2t,t2v,v2v,tv2v,K=5,M=1,N=1)
-loss = 'T01T02T01T02T01t03t04t03t04t03v05v06v05v06v05m07v08m07v08m07v08m07v08'
-loss = cl.getLoss(loss)
-# for visualization
-cl.visualization()
-print(cl.randomLossstr())
-print(cl.randomLossstr())
+# v2v,t2t,tv2v,t2v,_ = getMNISTop()
+# cl = CompositeLoss(t2t,t2v,v2v,tv2v,K=5,M=1,N=1)
+# loss = 'T01T02T01T02T01t03t04t03t04t03v05v06v05v06v05m07v08m07v08m07v08m07v08'
+# loss = cl.getLoss(loss)
+# # for visualization
+# cl.visualization()
+# print(cl.randomLossstr())
+# print(cl.randomLossstr())
 
 def zero_one_loss(input, target, reduction='elementwise_mean'):
     loss = (input != target)
